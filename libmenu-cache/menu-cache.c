@@ -86,6 +86,7 @@ struct _MenuCache
 
 static int server_fd = -1;
 static GIOChannel* server_ch = NULL;
+static guint server_watch = 0;
 static GHashTable* hash = NULL;
 
 
@@ -350,10 +351,18 @@ void menu_cache_unref(MenuCache* cache)
     if( g_atomic_int_dec_and_test( &cache->n_ref ) )
     {
         unregister_menu_from_server( cache );
+        /* g_debug("unregister to server"); */
         g_hash_table_remove( hash, cache->menu_name );
         if( g_hash_table_size(hash) == 0 )
         {
+            /* g_debug("destroy hash"); */
             g_hash_table_destroy(hash);
+
+            /* g_debug("disconnect from server"); */
+            g_source_remove(server_watch);
+            g_io_channel_unref(server_ch);
+            server_fd = -1;
+            server_ch = NULL;
             hash = NULL;
         }
 
@@ -663,8 +672,17 @@ char* menu_cache_dir_make_path( MenuCacheDir* dir )
 
 static void get_socket_name( char* buf, int len )
 {
-    char* dpy = g_getenv("DISPLAY");
-    g_snprintf( buf, len, "/tmp/.menu-cached-%s-%s", dpy, g_get_user_name() );
+    char* dpy = g_strdup(g_getenv("DISPLAY"));
+    if(dpy && *dpy)
+    {
+        char* p = strchr(dpy, ':');
+        for(++p; *p && *p != '.';)
+            ++p;
+        if(*p)
+            *p = '\0';
+    }
+    g_snprintf( buf, len, "/tmp/.menu-cached-%s-%s", dpy ? dpy : ":0", g_get_user_name() );
+    g_free(dpy);
 }
 
 #define MAX_RETRIES 25
@@ -707,7 +725,7 @@ static gboolean on_server_io(GIOChannel* ch, GIOCondition cond, gpointer user_da
     if( cond & (G_IO_ERR|G_IO_HUP) )
     {
 reconnect:
-        g_debug("IO error, try to re-connect.");
+        g_debug("IO error %d, try to re-connect.", cond);
         g_io_channel_unref(ch);
         server_fd = -1;
         if( ! connect_server() )
@@ -721,9 +739,12 @@ reconnect:
             MenuCache* cache;
             g_debug("successfully restart server.\nre-register menus.");
             /* re-register all menu caches */
-            g_hash_table_iter_init(&it, hash);
-            while(g_hash_table_iter_next(&it, (gpointer*)&menu_name, (gpointer*)&cache))
-                register_menu_to_server( menu_name, TRUE );
+            if(hash)
+            {
+                g_hash_table_iter_init(&it, hash);
+                while(g_hash_table_iter_next(&it, (gpointer*)&menu_name, (gpointer*)&cache))
+                    register_menu_to_server( menu_name, TRUE );
+            }
         }
         return FALSE;
     }
@@ -811,7 +832,7 @@ retry:
     server_fd = fd;
     server_ch = g_io_channel_unix_new(fd);
     g_io_channel_set_close_on_unref(server_ch, TRUE);
-    g_io_add_watch(server_ch, G_IO_IN|G_IO_PRI|G_IO_ERR|G_IO_HUP, on_server_io, NULL);
+    server_watch = g_io_add_watch(server_ch, G_IO_IN|G_IO_PRI|G_IO_ERR|G_IO_HUP, on_server_io, NULL);
     return TRUE;
 }
 
