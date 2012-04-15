@@ -10,10 +10,10 @@ Homepage: http://lxde.org
 Vcs-Browser: http://git.lxde.org/gitweb/?p=debian/menu-cache.git
 Vcs-Git: git://git.lxde.org/git/debian/menu-cache.git
 
-Package: libmenu-cache1-dev
-Section: libdevel
+Package: libmenu-cache1
+Section: libs
 Architecture: any
-Depends: ${misc:Depends}, libmenu-cache1 (= ${binary:Version})
+Depends: ${misc:Depends}, ${shlibs:Depends}
 Description: an implementation of the freedesktop menu specification for LXDE
  Libmenu-cache is a library creating and utilizing caches to speed up
  the manipulation for freedesktop.org defined application menus.
@@ -26,10 +26,10 @@ Description: an implementation of the freedesktop menu specification for LXDE
   * Less unnecessary and complicated file monitoring.
   * Heavily reduced disk I/O.
 
-Package: libmenu-cache1
-Section: libs
+Package: libmenu-cache1-dev
+Section: libdevel
 Architecture: any
-Depends: ${misc:Depends}, ${shlibs:Depends}
+Depends: ${misc:Depends}, libmenu-cache1 (= ${binary:Version})
 Description: an implementation of the freedesktop menu specification for LXDE
  Libmenu-cache is a library creating and utilizing caches to speed up
  the manipulation for freedesktop.org defined application menus.
