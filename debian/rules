@@ -43,7 +43,7 @@ ifneq "$(wildcard /usr/share/misc/config.guess)" ""
 	cp -f /usr/share/misc/config.guess config.guess
 endif
 #	/usr/bin/autoreconf -fiv
-	./configure $(CROSS) --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info --libexecdir=\$${prefix}/lib/libmenu-cache/libexec CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs" --disable-maintainer-mode
+	./configure $(CROSS) --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info --libexecdir=\$${prefix}/lib/libmenu-cache1/libexec CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs" --disable-maintainer-mode
 
 
 build: build-stamp
