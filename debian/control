@@ -7,8 +7,8 @@ Build-Depends: debhelper (>= 7), autotools-dev, libglib2.0-dev, intltool
 Standards-Version: 3.8.4
 Section: libs
 Homepage: http://lxde.org
-Vcs-Git: git://git.debian.org/git/collab-maint/menu-cache.git
-Vcs-Browser: http://git.debian.org/?p=collab-maint/menu-cache.git;a=summary
+Vcs-Browser: http://git.lxde.org/gitweb/?p=debian/menu-cache.git
+Vcs-Git: git://git.lxde.org/git/debian/menu-cache.git
 
 Package: libmenu-cache1-dev
 Section: libdevel
