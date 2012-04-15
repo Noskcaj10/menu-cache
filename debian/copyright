@@ -54,7 +54,7 @@ menu-cache-gen/menu-monitor.h:
 menu-cache-gen/menu-util.c:
    Copyright (C) 2003 Red Hat, Inc.
 menu-cache-gen/menu-util.h:
-   Copyright (C) 2003 Red Hat, Inc.   
+   Copyright (C) 2003 Red Hat, Inc.
 
 License:
 
@@ -79,6 +79,6 @@ The Debian packaging is:
 
     Copyright (C) 2009 Andrew Lee <andrew@linux.org.tw>
 
-and is licensed under the GPL version 3, 
+and is licensed under the GPL version 3,
 see `/usr/share/common-licenses/GPL-3'.
 

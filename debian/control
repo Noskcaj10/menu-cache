@@ -21,7 +21,7 @@ Description: an implementation of the freedesktop menu specification for LXDE
  .
   * Shorten time for loading menu entries.
   * Ease of use. (API is very similar to that of libgnome-menu)
-  * Lightweight runtime library. (Parsing of the menu definition files 
+  * Lightweight runtime library. (Parsing of the menu definition files
     are done by menu-cache-gen when the menus are really changed.)
   * Less unnecessary and complicated file monitoring.
   * Heavily reduced disk I/O.
@@ -37,7 +37,7 @@ Description: an implementation of the freedesktop menu specification for LXDE
  .
   * Shorten time for loading menu entries.
   * Ease of use. (API is very similar to that of libgnome-menu)
-  * Lightweight runtime library. (Parsing of the menu definition files 
+  * Lightweight runtime library. (Parsing of the menu definition files
     are done by menu-cache-gen when the menus are really changed.)
   * Less unnecessary and complicated file monitoring.
   * Heavily reduced disk I/O.
