@@ -1,0 +1,5 @@
+menu-cache (0.2.5-1) unstable; urgency=low
+
+  * Initial release (Closes: #525811)
+
+ -- Andrew Lee <andrew@linux.org.tw>  Tue, 28 Apr 2009 23:55:28 +0800
