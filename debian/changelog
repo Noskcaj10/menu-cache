@@ -1,3 +1,32 @@
+menu-cache (0.3.2-3) unstable; urgency=low
+
+  * Updating maintainer field.
+  * Adding myself to uploaders.
+  * Updating vcs fields.
+  * Removing whitespaces at EOL and EOF.
+  * Updating package to debhelper version 9.
+  * Updating package to standards version 3.9.3.
+  * Sorting source fields.
+  * Sorting build-depends.
+  * Sorting depends.
+  * Sorting packages.
+  * Updating homepage field.
+  * Rewriting copyright file machine-readable format version 1.0.
+  * Prefixing debhelper files with package name.
+  * Rediffing binutils-gold.patch with common diff options.
+  * Minimizing rules file.
+  * Switching to xz compression for both the source and the binary
+    packages.
+  * Updating.
+  * Updating package descriptions.
+  * Simplyfing debhelper install files.
+  * Removing debian readme, does only repeat what package description
+    already contains.
+  * Decrufting watch file.
+  * Adding pre-depends to multiarch-support.
+
+ -- Daniel Baumann <daniel@debian.org>  Sun, 15 Apr 2012 16:11:59 +0000
+
 menu-cache (0.3.2-2.1) unstable; urgency=low
 
   * Non-maintainer upload.
