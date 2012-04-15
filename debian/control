@@ -1,10 +1,9 @@
 Source: menu-cache
 Priority: extra
-Maintainer: Andrew Lee <andrew@linux.org.tw>
-Build-Depends: debhelper (>= 7), autotools-dev, libglib2.0-dev
-Standards-Version: 3.8.1
+Maintainer: Andrew Lee (李健秋) <ajqlee@debian.org>
+Build-Depends: debhelper (>= 7), autotools-dev, libglib2.0-dev, intltool
+Standards-Version: 3.8.3
 Section: libs
-DM-Upload-Allowed: yes
 Homepage: http://lxde.org
 
 Package: libmenu-cache-dev
