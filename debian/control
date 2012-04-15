@@ -14,15 +14,16 @@ Package: libmenu-cache1
 Section: libs
 Architecture: any
 Depends: ${misc:Depends}, ${shlibs:Depends}
-Description: an implementation of the freedesktop menu specification for LXDE
+Description: LXDE implementation of the freedesktop Menu specification
  Libmenu-cache is a library creating and utilizing caches to speed up
  the manipulation for freedesktop.org defined application menus.
- It can be used as a replacement of libgnome-menu of gnome-menus.
+ .
+ It can be used as a replacement of libgnome-menu of gnome-menus:
  .
   * Shorten time for loading menu entries.
-  * Ease of use. (API is very similar to that of libgnome-menu)
-  * Lightweight runtime library. (Parsing of the menu definition files
-    are done by menu-cache-gen when the menus are really changed.)
+  * Ease of use (API is very similar to that of libgnome-menu).
+  * Lightweight runtime library (parsing of the menu definition files
+    are done by menu-cache-gen when the menus are really changed).
   * Less unnecessary and complicated file monitoring.
   * Heavily reduced disk I/O.
 
@@ -30,14 +31,8 @@ Package: libmenu-cache1-dev
 Section: libdevel
 Architecture: any
 Depends: ${misc:Depends}, libmenu-cache1 (= ${binary:Version})
-Description: an implementation of the freedesktop menu specification for LXDE
+Description: LXDE implementation of the freedesktop Menu specification (devel)
  Libmenu-cache is a library creating and utilizing caches to speed up
  the manipulation for freedesktop.org defined application menus.
- It can be used as a replacement of libgnome-menu of gnome-menus.
  .
-  * Shorten time for loading menu entries.
-  * Ease of use. (API is very similar to that of libgnome-menu)
-  * Lightweight runtime library. (Parsing of the menu definition files
-    are done by menu-cache-gen when the menus are really changed.)
-  * Less unnecessary and complicated file monitoring.
-  * Heavily reduced disk I/O.
+ This package contains the development files.
