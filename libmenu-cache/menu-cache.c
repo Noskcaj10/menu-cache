@@ -19,6 +19,10 @@
  *      MA 02110-1301, USA.
  */
 
+/* NOTICE: This library is not MT-safe and should only be called from main thread.
+ *         If you really need to use it in another thread, using mutex is needed,
+ *         but the correct way to do this is unknown. */
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -39,6 +43,12 @@
 #include <sys/wait.h>
 
 #include "menu-cache.h"
+
+#ifdef G_ENABLE_DEBUG
+#define DEBUG(...)  g_debug(__VA_ARGS__)
+#else
+#define DEBUG(...)
+#endif
 
 struct _MenuCacheItem
 {
@@ -88,7 +98,6 @@ static int server_fd = -1;
 static GIOChannel* server_ch = NULL;
 static guint server_watch = 0;
 static GHashTable* hash = NULL;
-
 
 /* Don't call this API directly. Use menu_cache_lookup instead. */
 static MenuCache* menu_cache_new( const char* cache_file );
@@ -284,58 +293,9 @@ static gboolean read_all_known_des( FILE* f, char** des )
 MenuCache* menu_cache_new( const char* cache_file )
 {
     MenuCache* cache;
-    struct stat st;
-    char line[4096];
-
-    FILE* f = fopen( cache_file, "r" );
-    if( ! f )
-        return NULL;
-
-    if( fstat( fileno( f ), &st ) == -1 )
-    {
-        fclose( f );
-        return NULL;
-    }
-
-    /* the first line is version number */
-    if( fgets( line, G_N_ELEMENTS(line) ,f ) )
-    {
-        int ver_maj, ver_min;
-        if( sscanf(line, "%d.%d", &ver_maj, &ver_min)< 2 )
-            return NULL;
-        if( ver_maj != VER_MAJOR || ver_min != VER_MINOR )
-            return NULL;
-    }
-    else
-        return NULL;
-
-    /* the second line is menu name */
-    if( ! fgets( line, G_N_ELEMENTS(line) ,f ) )
-        return NULL;
-
     cache = g_slice_new0( MenuCache );
-
     cache->cache_file = g_strdup( cache_file );
-    /* cache->menu_file_path = g_strdup( strtok(line, "\n") ); */
-
-    /* get all used files */
-    if( ! read_all_used_files( f, &cache->n_all_used_files, &cache->all_used_files ) )
-    {
-        g_slice_free( MenuCache, cache );
-        return NULL;
-    }
-
-    /* read all known DEs */
-    if( ! read_all_known_des( f, &cache->known_des ) )
-    {
-        g_strfreev(cache->all_used_files);
-        g_slice_free( MenuCache, cache );
-        return NULL;
-    }
-
     cache->n_ref = 1;
-    cache->root_dir = (MenuCacheDir*)read_item( f, cache );
-    fclose( f );
     return cache;
 }
 
@@ -347,18 +307,19 @@ MenuCache* menu_cache_ref(MenuCache* cache)
 
 void menu_cache_unref(MenuCache* cache)
 {
-    /* g_debug("cache_unref: %d", cache->n_ref); */
-    if( g_atomic_int_dec_and_test( &cache->n_ref ) )
+    /* DEBUG("cache_unref: %d", cache->n_ref); */
+    --cache->n_ref;
+    if( cache->n_ref == 0 )
     {
         unregister_menu_from_server( cache );
-        /* g_debug("unregister to server"); */
+        /* DEBUG("unregister to server"); */
         g_hash_table_remove( hash, cache->menu_name );
         if( g_hash_table_size(hash) == 0 )
         {
-            /* g_debug("destroy hash"); */
+            /* DEBUG("destroy hash"); */
             g_hash_table_destroy(hash);
 
-            /* g_debug("disconnect from server"); */
+            /* DEBUG("disconnect from server"); */
             g_source_remove(server_watch);
             g_io_channel_unref(server_ch);
             server_fd = -1;
@@ -368,9 +329,9 @@ void menu_cache_unref(MenuCache* cache)
 
         if( G_LIKELY(cache->root_dir) )
         {
-            /* g_debug("unref root dir"); */
+            /* DEBUG("unref root dir"); */
             menu_cache_item_unref( cache->root_dir );
-            /* g_debug("unref root dir finished"); */
+            /* DEBUG("unref root dir finished"); */
         }
         g_free( cache->cache_file );
         g_free( cache->menu_name );
@@ -378,6 +339,7 @@ void menu_cache_unref(MenuCache* cache)
         g_strfreev( cache->all_used_files );
         g_slice_free( MenuCache, cache );
     }
+    
 }
 
 MenuCacheDir* menu_cache_get_root_dir( MenuCache* cache )
@@ -389,7 +351,7 @@ MenuCacheDir* menu_cache_get_root_dir( MenuCache* cache )
 MenuCacheItem* menu_cache_item_ref(MenuCacheItem* item)
 {
     g_atomic_int_inc( &item->n_ref );
-    /* g_debug("item_ref %s: %d -> %d", item->id, item->n_ref-1, item->n_ref); */
+    /* DEBUG("item_ref %s: %d -> %d", item->id, item->n_ref-1, item->n_ref); */
     return item;
 }
 
@@ -475,7 +437,9 @@ gboolean menu_cache_reload( MenuCache* cache )
         return FALSE;
     }
 
-    menu_cache_item_unref( cache->root_dir );
+    if(cache->root_dir)
+        menu_cache_item_unref( cache->root_dir );
+
     cache->root_dir = (MenuCacheDir*)read_item( f, cache );
     fclose( f );
 
@@ -486,10 +450,10 @@ gboolean menu_cache_reload( MenuCache* cache )
 
 void menu_cache_item_unref(MenuCacheItem* item)
 {
-    /* g_debug("item_unref(%s): %d", item->id, item->n_ref); */
+    /* DEBUG("item_unref(%s): %d", item->id, item->n_ref); */
     if( g_atomic_int_dec_and_test( &item->n_ref ) )
     {
-        /* g_debug("free item: %s", item->id); */
+        /* DEBUG("free item: %s", item->id); */
         g_free( item->id );
         g_free( item->name );
         g_free( item->comment );
@@ -500,7 +464,7 @@ void menu_cache_item_unref(MenuCacheItem* item)
 
         if( item->parent )
         {
-            /* g_debug("remove %s from parent %s", item->id, MENU_CACHE_ITEM(item->parent)->id); */
+            /* DEBUG("remove %s from parent %s", item->id, MENU_CACHE_ITEM(item->parent)->id); */
             /* remove ourselve from the parent node. */
             item->parent->children = g_slist_remove(item->parent->children, item);
         }
@@ -725,7 +689,7 @@ static gboolean on_server_io(GIOChannel* ch, GIOCondition cond, gpointer user_da
     if( cond & (G_IO_ERR|G_IO_HUP) )
     {
 reconnect:
-        g_debug("IO error %d, try to re-connect.", cond);
+        DEBUG("IO error %d, try to re-connect.", cond);
         g_io_channel_unref(ch);
         server_fd = -1;
         if( ! connect_server() )
@@ -737,14 +701,16 @@ reconnect:
             GHashTableIter it;
             char* menu_name;
             MenuCache* cache;
-            g_debug("successfully restart server.\nre-register menus.");
+            DEBUG("successfully restart server.\nre-register menus.");
             /* re-register all menu caches */
+            
             if(hash)
             {
                 g_hash_table_iter_init(&it, hash);
                 while(g_hash_table_iter_next(&it, (gpointer*)&menu_name, (gpointer*)&cache))
                     register_menu_to_server( menu_name, TRUE );
             }
+            
         }
         return FALSE;
     }
@@ -757,11 +723,11 @@ reconnect:
             goto retry;
         if ( st != G_IO_STATUS_NORMAL || len < 4 )
         {
-            g_debug("server IO error!!");
+            DEBUG("server IO error!!");
             goto reconnect;
             return FALSE;
         }
-        g_debug("server line: %s", line);
+        DEBUG("server line: %s", line);
         if( 0 == memcmp( line, "REL:", 4 ) ) /* reload */
         {
             GHashTableIter it;
@@ -769,20 +735,21 @@ reconnect:
             MenuCache* cache;
             line[len - 1] = '\0';
             char* menu_cache_id = line + 4;
-            g_debug("server ask us to reload cache: %s", menu_cache_id);
+            DEBUG("server ask us to reload cache: %s", menu_cache_id);
 
+            
             g_hash_table_iter_init(&it, hash);
             while(g_hash_table_iter_next(&it, (gpointer*)&menu_name, (gpointer*)&cache))
             {
                 if(0 == memcmp(cache->md5, menu_cache_id, 32))
                 {
-                    g_debug("RELOAD!");
+                    DEBUG("RELOAD!");
                     menu_cache_reload(cache);
                     break;
                 }
             }
+            
         }
-
         g_free( line );
     }
     return TRUE;
@@ -847,9 +814,10 @@ MenuCache* register_menu_to_server( const char* menu_name, gboolean re_register 
     const char* xdg_data_home = g_getenv("XDG_DATA_HOME");
     const char* xdg_cache_home = g_getenv("XDG_CACHE_HOME");
     char* buf;
-    char md5[36];
+    const char* md5;
     char* file_name;
     int len = 0, r;
+    GChecksum *sum;
 
     if( !xdg_cfg )
         xdg_cfg = "";
@@ -868,7 +836,7 @@ MenuCache* register_menu_to_server( const char* menu_name, gboolean re_register 
     while( strchr(langs[0], '.') )
         ++langs;
 
-    buf = g_strdup_printf( "REG:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+    buf = g_strdup_printf( "REG:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t00000000000000000000000000000000\n",
                             menu_name,
                             *langs,
 							xdg_cache_home,
@@ -877,30 +845,33 @@ MenuCache* register_menu_to_server( const char* menu_name, gboolean re_register 
                             xdg_data,
                             xdg_cfg_home,
                             xdg_data_home );
-    write( server_fd, buf, strlen(buf) );
 
-    while( (r=read(server_fd, md5 + len, 32 - len)) > 0 && len < 32 )
-        len += r;
+    /* calculate the md5 sum of menu name + lang + all environment variables */
+    sum = g_checksum_new(G_CHECKSUM_MD5);
+    len = strlen(buf);
+    g_checksum_update(sum, buf + 4, len - 38);
+    md5 = g_checksum_get_string(sum);
+    memcpy(buf + len - 33, md5, 32);
+    write( server_fd, buf, len );
+    g_free( buf );
 
-    md5[32] = '\0';
-
-    if( r == -1 )
+    if( re_register )
     {
-        g_debug("server error!");
+        g_checksum_free(sum);
         return NULL;
     }
-    g_free( buf );
-    if( len != 32 || re_register )
-        return NULL;
 
     file_name = g_build_filename( g_get_user_cache_dir(), "menus", md5, NULL );
-    g_debug("cache file_name = %s", file_name);
+    DEBUG("cache file_name = %s", file_name);
     cache = menu_cache_new( file_name );
     memcpy( cache->md5, md5, 32 );
     cache->menu_name = g_strdup(menu_name);
     g_free( file_name );
 
+    g_checksum_free(sum); /* md5 is also freed here */
+
     g_hash_table_insert( hash, g_strdup(menu_name), cache );
+
     return cache;
 }
 
@@ -923,7 +894,10 @@ MenuCache* menu_cache_lookup( const char* menu_name )
     {
         cache = (MenuCache*)g_hash_table_lookup(hash, menu_name);
         if( cache )
+        {
+            
             return menu_cache_ref(cache);
+        }
     }
 
     if( !connect_server() )
@@ -932,6 +906,27 @@ MenuCache* menu_cache_lookup( const char* menu_name )
         return NULL;
     }
     return register_menu_to_server( menu_name, FALSE );
+}
+
+static void on_menu_cache_reload(MenuCache* mc, gpointer user_data)
+{
+    GMainLoop* mainloop = (GMainLoop*)user_data;
+    g_main_loop_quit(mainloop);
+}
+
+MenuCache* menu_cache_lookup_sync( const char* menu_name )
+{
+    MenuCache* mc = menu_cache_lookup(menu_name);
+    /* ensure that the menu cache is loaded */
+    if(! menu_cache_get_root_dir(mc)) /* if it's not yet loaded */
+    {
+        GMainLoop* mainloop = g_main_loop_new(NULL, FALSE);
+        gpointer notify_id = menu_cache_add_reload_notify(mc, on_menu_cache_reload, mainloop);
+        g_main_loop_run(mainloop);
+        g_main_loop_unref(mainloop);
+        menu_cache_remove_reload_notify(mc, notify_id);
+    }
+    return mc;
 }
 
 static GSList* list_app_in_dir(MenuCacheDir* dir, GSList* list)

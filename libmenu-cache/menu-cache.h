@@ -22,6 +22,10 @@
  *      MA 02110-1301, USA.
  */
 
+/* NOTICE: This library is not MT-safe and should only be called from main thread.
+ *         If you really need to use it in another thread, using mutex is needed,
+ *         but the correct way to do this is unknown. */
+
 #ifndef __MENU_CACHE_H__
 #define __MENU_CACHE_H__
 
@@ -66,6 +70,7 @@ enum _MenuCacheItemFlag{
 void menu_cache_init(int flags);
 
 MenuCache* menu_cache_lookup( const char* menu_name );
+MenuCache* menu_cache_lookup_sync( const char* menu_name );
 /* MenuCache* menu_cache_lookup_by_cache_id( const char* md5 ); */
 
 MenuCache* menu_cache_ref(MenuCache* cache);
