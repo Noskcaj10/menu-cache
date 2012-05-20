@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <locale.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -179,8 +180,8 @@ static void write_entry( FILE* of, GMenuTreeEntry* item )
         fprintf( of, "\n-1\n" );
     }
 
-    /* GenericName */
-    str = gmenu_tree_entry_get_generic_name( item );
+    /* DisplayName */
+    str = gmenu_tree_entry_get_display_name( item );
     fprintf( of, "%s\n", str ? str : "" );
 
     /* Exec */
@@ -306,6 +307,8 @@ int main(int argc, char** argv)
     const gchar* const * pdir;
     char* menu_prefix;
     char* menu_file;
+
+    setlocale (LC_ALL, "");
 
     opt_ctx = g_option_context_new("Generate cache for freedeskotp.org compliant menus.");
     g_option_context_add_main_entries( opt_ctx, opt_entries, NULL );
