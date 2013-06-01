@@ -6,7 +6,7 @@ DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
 	dh ${@} --with autotools_dev
 
 override_dh_auto_configure:
-	dh_auto_configure -- --libexecdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH)/libmenu-cache3/libexec --enable-gtk-doc
+	dh_auto_configure -- --libexecdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH) --enable-gtk-doc
 
 override_dh_auto_install:
 	dh_auto_install
