@@ -11,10 +11,11 @@ INCLUDES =				\
 	-Werror-implicit-function-declaration \
 	$(NULL)
 
-libexec_PROGRAMS = menu-cache-gen
+pkglibexec_PROGRAMS = menu-cache-gen
 
 menu_cache_gen_SOURCES =		\
 	menu-cache-gen.c		\
+	menu-cache-gen.h		\
 	canonicalize.c			\
 	canonicalize.h			\
 	desktop-entries.c		\
@@ -32,7 +33,6 @@ menu_cache_gen_SOURCES =		\
 	$(NULL)
 
 menu_cache_gen_LDADD = 		\
-	$(top_builddir)/libmenu-cache/libmenu-cache.la	\
 	$(GLIB_LIBS)					\
 	$(MONITOR_LIBS)					\
 	$(NULL)

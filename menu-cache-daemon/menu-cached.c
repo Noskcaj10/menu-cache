@@ -2,6 +2,7 @@
  *      menu-cached.c
  *
  *      Copyright 2008 - 2010 PCMan <pcman.tw@gmail.com>
+ *      Copyright 2012-2013 Andriy Grytsenko (LStranger) <andrej@rep.kiev.ua>
  *
  *      This program is free software; you can redistribute it and/or modify
  *      it under the terms of the GNU General Public License as published by
@@ -49,7 +50,6 @@
 
 typedef struct _Cache
 {
-    int n_ref;
     char md5[33]; /* cache id */
     /* environment */
     char* menu_name;
@@ -62,56 +62,68 @@ typedef struct _Cache
     GFileMonitor** mons;
     /* GFileMonitor* cache_mon; */
 
+    gboolean need_reload;
     guint delayed_reload_handler;
+    guint delayed_free_handler;
 
     /* clients requesting this menu cache */
     GSList* clients;
 }Cache;
+
+GMainLoop* main_loop = NULL;
 
 static GHashTable* hash = NULL;
 
 static void on_file_changed( GFileMonitor* mon, GFile* gf, GFile* other,
                              GFileMonitorEvent evt, Cache* cache );
 
-static void cache_unref(Cache* cache)
+static gboolean delayed_cache_free(gpointer data)
 {
-    --cache->n_ref;
-    /* DEBUG("menu cache unrefed: ref_count=%d", cache->n_ref); */
-    if( cache->n_ref == 0 )
+    Cache* cache = data;
+    int i;
+
+    if(g_source_is_destroyed(g_main_current_source()))
+        return FALSE;
+
+    g_hash_table_remove( hash, cache->md5 );
+    /* DEBUG("menu cache freed"); */
+    for(i = 0; i < cache->n_files; ++i)
     {
-        int i;
-        /* DEBUG("menu cache freed"); */
-        g_slist_foreach( cache->clients, (GFunc)g_io_channel_unref, NULL );
-        g_slist_free( cache->clients );
-        for(i = 0; i < cache->n_files; ++i)
-        {
-            g_file_monitor_cancel( cache->mons[i] );
-            g_object_unref( cache->mons[i] );
-        }
+        g_file_monitor_cancel( cache->mons[i] );
+        g_object_unref( cache->mons[i] );
+    }
 /*
-        g_file_monitor_cancel(cache->cache_mon);
-        g_object_unref(cache->cache_mon);
+    g_file_monitor_cancel(cache->cache_mon);
+    g_object_unref(cache->cache_mon);
 */
-        g_free( cache->mons );
-        g_strfreev( cache->env );
-        g_strfreev( cache->files );
+    g_free( cache->mons );
+    g_strfreev( cache->env );
+    g_strfreev( cache->files );
 
-		if( cache->delayed_reload_handler )
-			g_source_remove( cache->delayed_reload_handler );
+    if( cache->delayed_reload_handler )
+        g_source_remove( cache->delayed_reload_handler );
 
-        g_slice_free( Cache, cache );
-    }
-    else if( cache->n_ref == 1 ) /* the last ref count is held by hash table */
-    {
-        /* DEBUG("menu cache removed from hash"); */
-        g_hash_table_remove( hash, cache->md5 );
-    }
+    g_slice_free( Cache, cache );
+
+    if(g_hash_table_size(hash) == 0)
+        g_main_loop_quit(main_loop);
+    return FALSE;
+}
+
+static void cache_free(Cache* cache)
+{
+    /* shutdown cache in 10 minutes of inactivity */
+    if(!cache->delayed_free_handler)
+        cache->delayed_free_handler = g_timeout_add_seconds(600,
+                                                            delayed_cache_free,
+                                                            cache);
+    DEBUG("menu %p cache unused, removing in 600s", cache);
 }
 
 static gboolean read_all_used_files( FILE* f, int* n_files, char*** used_files )
 {
     char line[ 4096 ];
-    int i, n;
+    int i, n, x;
     char** files;
     int ver_maj, ver_min;
 
@@ -131,20 +143,31 @@ static gboolean read_all_used_files( FILE* f, int* n_files, char*** used_files )
     if( ! fgets( line, G_N_ELEMENTS(line), f ) )
         return FALSE;
 
-    *n_files = n = atoi( line );
+    n = atoi( line );
     files = g_new0( char*, n + 1 );
 
-    for( i = 0; i < n; ++i )
+    for( i = 0, x = 0; i < n; ++i )
     {
         int len;
+        GFile *gfile;
         if( ! fgets( line, G_N_ELEMENTS(line), f ) )
             return FALSE;
 
         len = strlen( line );
         if( len <= 1 )
             return FALSE;
-        files[ i ] = g_strndup( line, len - 1 ); /* don't include \n */
+        files[ x ] = g_strndup( line, len - 1 ); /* don't include \n */
+        gfile = g_file_new_for_path(files[x]+1);
+        if (g_file_query_exists(gfile, NULL))
+            x++;
+        else
+        {
+            DEBUG("ignoring not existant file from menu-cache-gen: %s", files[x]);
+            g_free(files[x]);
+        }
+        g_object_unref(gfile);
     }
+    *n_files = x;
     *used_files = files;
     return TRUE;
 }
@@ -159,7 +182,7 @@ static void set_env( char* penv, const char* name )
 
 static void pre_exec( gpointer user_data )
 {
-    char** env = (char*)user_data;
+    char** env = (char**)user_data;
     set_env(*env, "XDG_CACHE_HOME");
     set_env(*++env, "XDG_CONFIG_DIRS");
     set_env(*++env, "XDG_MENU_PREFIX");
@@ -178,7 +201,7 @@ static gboolean regenerate_cache( const char* menu_name,
     FILE* f;
     int n_files, status = 0;
     char** files;
-    const char* const * argv[] = {
+    const char* argv[] = {
         MENUCACHE_LIBEXECDIR "/menu-cache-gen",
         "-l", NULL,
         "-i", NULL,
@@ -191,7 +214,8 @@ static gboolean regenerate_cache( const char* menu_name,
     /* DEBUG("cmd: %s", g_strjoinv(" ", argv)); */
 
     /* run menu-cache-gen */
-    if( !g_spawn_sync(NULL, argv, NULL, 0,
+    /* FIXME: is cast to (char**) valid here? */
+    if( !g_spawn_sync(NULL, (char **)argv, NULL, 0,
                     pre_exec, env, NULL, NULL, &status, NULL ))
     {
         DEBUG("error executing menu-cache-gen");
@@ -218,7 +242,7 @@ static gboolean regenerate_cache( const char* menu_name,
     return TRUE;
 }
 
-static gboolean delayed_reload( Cache* cache )
+static void do_reload(Cache* cache)
 {
     GSList* l;
     char buf[38];
@@ -262,7 +286,8 @@ static gboolean delayed_reload( Cache* cache )
             cache->mons[i] = g_file_monitor_directory( gf, 0, NULL, NULL );
         else
             cache->mons[i] = g_file_monitor_file( gf, 0, NULL, NULL );
-        g_signal_connect( cache->mons[i], "changed", on_file_changed, cache);
+        g_signal_connect(cache->mons[i], "changed",
+                         G_CALLBACK(on_file_changed), cache);
         g_object_unref(gf);
     }
 /*
@@ -277,70 +302,32 @@ static gboolean delayed_reload( Cache* cache )
     for( l = cache->clients; l; l = l->next )
     {
         GIOChannel* ch = (GIOChannel*)l->data;
-        write(g_io_channel_unix_get_fd(ch), buf, 37 );
+        if(write(g_io_channel_unix_get_fd(ch), buf, 37) < 37)
+            g_io_channel_shutdown(ch, FALSE, NULL);
     }
-    cache->delayed_reload_handler = 0;
-    return FALSE;
+    cache->need_reload = FALSE;
 }
 
-static gboolean is_desktop_file_in_cache(Cache* cache, int dir_idx, const char* base_name)
+static gboolean delayed_reload( Cache* cache )
 {
-    gboolean ret = FALSE;
-    char* cache_file = g_build_filename(g_get_user_cache_dir(), "menus", cache->md5, NULL );
-    FILE* f = fopen(cache_file, "r");
-    g_free(cache_file);
-    if( f )
-    {
-        char line[4096];
-        while( fgets(line, G_N_ELEMENTS(line), f) )
-        {
-            int l = strlen(line);
-            line[l - 1] = '\0';
-            /* this is not a 100% safe way to check if the
-             * desktop file is listed in our original cache,
-             * but this works in 99.9% of cases. */
-            if( line[0] == '-' && 0 == strcmp(line+1, base_name) )
-            {
-                int i;
-                /* if this line is -desktop_id, we can get its dir_idx in following 5 lines. */
-                for( i = 0; i < 5; ++i )
-                {
-                    if( ! fgets(line, G_N_ELEMENTS(line), f) )
-                        break;
-                    if( i == 3 && !line[0] ) /* the 4th line should be empty */
-                        break;
-                }
-                if( i >= 5 )
-                {
-                    if( dir_idx == atoi(line) )
-                    {
-                        ret = TRUE;
-                        break;
-                    }
-                }
-            }
-            else if(strcmp(line, base_name) == 0)
-            {
-                /* if this line is a basename, we can get its dir_idx in the next line. */
-                if( fgets( line, G_N_ELEMENTS(line), f) )
-                {
-                    if( dir_idx == atoi(line) )
-                    {
-                        ret = TRUE;
-                        break;
-                    }
-                }
-            }
-        }
-        fclose(f);
-    }
-    return ret;
+    if(g_source_is_destroyed(g_main_current_source()))
+        return FALSE;
+
+    cache->delayed_reload_handler = 0;
+    if(cache->need_reload)
+        do_reload(cache);
+
+    return FALSE;
 }
 
 void on_file_changed( GFileMonitor* mon, GFile* gf, GFile* other,
                       GFileMonitorEvent evt, Cache* cache )
 {
-    /* DEBUG("file %s is changed (%d).", g_file_get_path(gf), evt); */
+#ifdef G_ENABLE_DEBUG
+    char *path = g_file_get_path(gf);
+    g_debug("file %s is changed (%d).", path, evt);
+    g_free(path);
+#endif
     /* if( mon != cache->cache_mon ) */
     {
         /* Optimization: Some files in the dir are changed, but it
@@ -368,29 +355,6 @@ void on_file_changed( GFileMonitor* mon, GFile* gf, GFile* other,
                 /* only *.desktop and *.directory files can affect the content of the menu. */
                 if( g_str_has_suffix(base_name, ".desktop") )
                 {
-                    /* FIXME: there seems to be some problems here... so weird. */
-                    /* further optimization:
-                     * If the changed file is a desktop entry file with
-                     * Hidden=true or NoDisplay=true, and it's not in our
-                     * original menu cache, either, just omit it since it won't
-                     * affect the content of our menu.
-                     */
-                    gboolean in_cache = is_desktop_file_in_cache(cache, idx, base_name);
-                    /* DEBUG("in_cache = %d", in_cache); */
-                    if( ! in_cache ) /* means this is a new file or previously hidden */
-                    {
-                        GKeyFile* kf = g_key_file_new();
-                        if( g_key_file_load_from_file( kf, changed_file, 0, NULL ) )
-                        {
-                            if( ! g_key_file_get_boolean(kf, "Desktop Entry", "Hidden", NULL)
-                                && ! g_key_file_get_boolean(kf, "Desktop Entry", "NoDisplay", NULL) )
-                            {
-                                skip = FALSE;
-                            }
-                        }
-                        g_key_file_free(kf);
-                    }
-                    else
                         skip = FALSE;
                 }
                 else if( g_str_has_suffix(base_name, ".directory") )
@@ -398,36 +362,6 @@ void on_file_changed( GFileMonitor* mon, GFile* gf, GFile* other,
 
                 if( skip )
                 {
-                    /* FIXME: utime to update the mtime of cached file. */
-                    /* FIXME: temporarily disable monitor of the cached file before utime() */
-                    /* without this, directory mtime will > mtime of cache file,
-                     * and the menu will get re-generated unnecessarily the next time. */
-                    GFile* gf;
-                    struct utimbuf ut;
-                    char* cache_file;
-
-                    g_free(changed_file);
-
-                    cache_file = g_build_filename(g_get_user_cache_dir(), "menus", cache->md5, NULL );
-
-                    ut.actime = ut.modtime = time(NULL);
-                    /* stop monitor of cache file. */
-					/*
-                    g_file_monitor_cancel( cache->cache_mon );
-                    g_object_unref( cache->cache_mon );
-                    cache->cache_mon = NULL;
-					*/
-                    /* update the mtime of the cache file. */
-                    utime( cache_file, &ut );
-
-                    /* restart the monitor */
-                    /* gf = g_file_new_for_path( cache_file ); */
-                    g_free(cache_file);
-					/*
-                    cache->cache_mon = g_file_monitor_file(gf, 0, NULL, NULL);
-                    g_object_unref(gf);
-                    g_signal_connect( cache->cache_mon, "changed", G_CALLBACK(on_file_changed), cache);
-					*/
                     DEBUG("files are changed, but no re-generation is needed.");
                     return;
                 }
@@ -437,20 +371,26 @@ void on_file_changed( GFileMonitor* mon, GFile* gf, GFile* other,
     }
 
     if( cache->delayed_reload_handler )
+    {
+        /* we got some change in last 3 seconds... not reload again */
+        cache->need_reload = TRUE;
         g_source_remove(cache->delayed_reload_handler);
+    }
+    else
+        /* no reload in last 3 seconds... good, do it immediately */
+        do_reload(cache);
 
     cache->delayed_reload_handler = g_timeout_add_seconds_full( G_PRIORITY_LOW, 3, (GSourceFunc)delayed_reload, cache, NULL );
 }
 
-static gboolean cache_file_is_updated( const char* cache_file, int* n_used_files, char** used_files )
+static gboolean cache_file_is_updated( const char* cache_file, int* n_used_files, char*** used_files )
 {
     gboolean ret = FALSE;
     struct stat st;
     time_t cache_mtime;
     char** files;
-    int n, i, l;
+    int n, i;
     FILE* f;
-    char line[ 4096 ];
 
     f = fopen( cache_file, "r" );
     if( f )
@@ -476,7 +416,6 @@ static gboolean cache_file_is_updated( const char* cache_file, int* n_used_files
                 }
             }
         }
-_out:
         fclose( f );
     }
     return ret;
@@ -493,7 +432,8 @@ static void get_socket_name( char* buf, int len )
         if(*p)
             *p = '\0';
     }
-    g_snprintf( buf, len, "/tmp/.menu-cached-%s-%s", dpy ? dpy : ":0", g_get_user_name() );
+    g_snprintf( buf, len, "%s/.menu-cached-%s-%s", g_get_tmp_dir(),
+                dpy ? dpy : ":0", g_get_user_name() );
     g_free(dpy);
 }
 
@@ -505,7 +445,7 @@ static int create_socket()
     fd = socket(PF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)
     {
-        g_print("Failed to create socket\n");
+        DEBUG("Failed to create socket");
         return -1;
     }
     memset(&addr, 0, sizeof(addr));
@@ -514,12 +454,12 @@ static int create_socket()
 
     /* remove previous socket file */
     if (unlink(addr.sun_path) < 0) {
-	if (errno != ENOENT)
-	    g_error("Couldn't remove previous socket file %s", addr.sun_path);
+        if (errno != ENOENT)
+            g_error("Couldn't remove previous socket file %s", addr.sun_path);
     }
     /* remove of previous socket file successful */
     else
-	    g_warning("removed previous socket file %s", addr.sun_path);
+        g_warning("removed previous socket file %s", addr.sun_path);
 
     if(bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0)
     {
@@ -536,17 +476,18 @@ static int create_socket()
     return fd;
 }
 
-static void on_client_closed(GIOChannel* ch, gpointer user_data)
+static void on_client_closed(gpointer user_data)
 {
+    GIOChannel* ch = user_data;
     GHashTableIter it;
     char* md5;
     Cache* cache;
-    GSList *l, *to_remove = NULL;
+    GSList *l;
     DEBUG("client closed: %p", ch);
     g_hash_table_iter_init (&it, hash);
     while( g_hash_table_iter_next (&it, (gpointer*)&md5, (gpointer*)&cache) )
     {
-        if( l = g_slist_find( cache->clients, ch ) )
+        while((l = g_slist_find( cache->clients, ch )) != NULL)
         {
             /* FIXME: some clients are closed accidentally without
              * unregister the menu first due to crashes.
@@ -557,15 +498,13 @@ static void on_client_closed(GIOChannel* ch, gpointer user_data)
              * unref will be called twice and incorrect ref. counting
              * will happen.
              */
-            to_remove = g_slist_prepend( to_remove, cache );
             cache->clients = g_slist_delete_link( cache->clients, l );
-            DEBUG("remove channel from cache");
-            g_io_channel_unref(ch);
+            DEBUG("remove channel from cache %p", cache);
+            if(cache->clients == NULL)
+                cache_free(cache);
         }
     }
     /* DEBUG("client closed"); */
-    g_slist_foreach( to_remove, (GFunc)cache_unref, NULL );
-    g_slist_free( to_remove );
 }
 
 static gboolean on_client_data_in(GIOChannel* ch, GIOCondition cond, gpointer user_data)
@@ -576,10 +515,10 @@ static gboolean on_client_data_in(GIOChannel* ch, GIOCondition cond, gpointer us
     const char* md5;
     Cache* cache;
     GFile* gf;
+    gboolean ret = TRUE;
 
     if(cond & (G_IO_HUP|G_IO_ERR) )
     {
-        on_client_closed(ch, user_data);
         return FALSE; /* remove the watch */
     }
 
@@ -593,11 +532,11 @@ retry:
     --len;
     line[len] = 0;
 
-    DEBUG("line(%d) = %s", len, line);
+    DEBUG("line(%d) = %s", (int)len, line);
 
     if( memcmp(line, "REG:", 4) == 0 )
     {
-        int status = 0, n_files, i;
+        int n_files, i;
         char *pline = line + 4;
         char *sep, *menu_name, *lang_name, *cache_dir, *cache_file;
         char **files;
@@ -632,7 +571,7 @@ retry:
 
             env = g_strsplit(pline, "\t", 0);
 
-			cache_dir = env[0]; /* XDG_CACHE_HOME */
+            cache_dir = env[0]; /* XDG_CACHE_HOME */
             /* obtain cache dir from client's env */
 
             cache_file = g_build_filename(*cache_dir ? cache_dir : g_get_user_cache_dir(), "menus", md5, NULL );
@@ -662,24 +601,29 @@ retry:
                 else
                     cache->mons[i] = g_file_monitor_file( gf, 0, NULL, NULL );
                 DEBUG("monitor: %s", g_file_get_path(gf));
-                g_signal_connect( cache->mons[i], "changed", on_file_changed, cache);
+                g_signal_connect(cache->mons[i], "changed",
+                                 G_CALLBACK(on_file_changed), cache);
                 g_object_unref(gf);
             }
-			/*
+            /*
             gf = g_file_new_for_path( cache_file );
             cache->cache_mon = g_file_monitor_file( gf, 0, NULL, NULL );
             g_signal_connect( cache->cache_mon, "changed", on_file_changed, cache);
             g_object_unref(gf);
-			*/
+            */
             g_free(cache_file);
 
             g_hash_table_insert(hash, cache->md5, cache);
-            DEBUG("new menu cache added to hash");
-            cache->n_ref = 1;
+            DEBUG("new menu cache %p added to hash", cache);
         }
         /* DEBUG("menu %s requested by client %d", md5, g_io_channel_unix_get_fd(ch)); */
-        ++cache->n_ref;
-        cache->clients = g_slist_prepend( cache->clients, g_io_channel_ref(ch) );
+        cache->clients = g_slist_prepend(cache->clients, ch);
+        if(cache->delayed_free_handler)
+        {
+            g_source_remove(cache->delayed_free_handler);
+            cache->delayed_free_handler = 0;
+        }
+        DEBUG("client %p added to cache %p", ch, cache);
 
         /* generate a fake reload notification */
         DEBUG("fake reload!");
@@ -689,26 +633,26 @@ retry:
         reload_cmd[37] = '\0';
 
         DEBUG("reload command: %s", reload_cmd);
-        write(g_io_channel_unix_get_fd(ch), reload_cmd, 37);
+        ret = write(g_io_channel_unix_get_fd(ch), reload_cmd, 37) > 0;
     }
     else if( memcmp(line, "UNR:", 4) == 0 )
     {
         md5 = line + 4;
         DEBUG("unregister: %s", md5);
         cache = (Cache*)g_hash_table_lookup(hash, md5);
-        if( cache )
+        if(cache && cache->clients)
         {
             /* remove the IO channel from the cache */
             cache->clients = g_slist_remove(cache->clients, ch);
-            cache_unref(cache);
-            g_io_channel_unref(ch);
+            if(cache->clients == NULL)
+                cache_free(cache);
         }
         else
             DEBUG("bug! client is not found.");
     }
     g_free( line );
 
-    return TRUE;
+    return ret;
 }
 
 static gboolean on_new_conn_incoming(GIOChannel* ch, GIOCondition cond, gpointer user_data)
@@ -729,18 +673,20 @@ static gboolean on_new_conn_incoming(GIOChannel* ch, GIOCondition cond, gpointer
     }
 
     child = g_io_channel_unix_new(client);
-    g_io_add_watch( child, G_IO_PRI|G_IO_IN|G_IO_HUP|G_IO_ERR, on_client_data_in, NULL );
     g_io_channel_set_close_on_unref( child, TRUE );
+    g_io_add_watch_full(child, G_PRIORITY_DEFAULT, G_IO_PRI|G_IO_IN|G_IO_HUP|G_IO_ERR,
+                        on_client_data_in, child, on_client_closed);
+    g_io_channel_unref(child);
 
-    /* DEBUG("new client accepted"); */
+    DEBUG("new client accepted: %p", child);
     return TRUE;
 }
 
 static void terminate(int sig)
 {
 /* #ifndef HAVE_ABSTRACT_SOCKETS */
-    char path[256];
-    get_socket_name(path, 256);
+    char path[1024];
+    get_socket_name(path, sizeof(path));
     unlink(path);
     exit(0);
 /* #endif */
@@ -757,12 +703,14 @@ static gboolean on_server_conn_close(GIOChannel* ch, GIOCondition cond, gpointer
 
 int main(int argc, char** argv)
 {
-    GMainLoop* main_loop = g_main_loop_new( NULL, TRUE );
     GIOChannel* ch;
-    int fd, pid, server_fd;
+    int server_fd;
+#ifndef DISABLE_DAEMONIZE
+    int fd, pid;
 
     long open_max;
     long i;
+#endif
 
     server_fd = create_socket();
 
@@ -772,24 +720,27 @@ int main(int argc, char** argv)
 #ifndef DISABLE_DAEMONIZE
     /* Become a daemon */
     if ((pid = fork()) < 0) {
-    	g_error("can't fork");
+        g_error("can't fork");
     }
     else if (pid != 0) {
-	/* exit parent */
-    	exit(0);
+        /* exit parent */
+        exit(0);
     }
+
+    /* reset session to forget about parent process completely */
+    setsid();
 
     /* change working directory to root, so previous working directory
      * can be unmounted */
     if (chdir("/") < 0) {
-    	g_error("can't change directory to /");
+        g_error("can't change directory to /");
     }
 
     open_max = sysconf (_SC_OPEN_MAX);
     for (i = 0; i < open_max; i++)
     {
         /* don't hold open fd opened besides server socket */
-        if (i != fd)
+        if (i != server_fd)
             fcntl (i, F_SETFD, FD_CLOEXEC);
     }
 
@@ -821,11 +772,15 @@ int main(int argc, char** argv)
     g_io_channel_set_close_on_unref(ch, TRUE);
     g_io_add_watch(ch, G_IO_IN|G_IO_PRI, on_new_conn_incoming, NULL);
     g_io_add_watch(ch, G_IO_ERR, on_server_conn_close, NULL);
+    g_io_channel_unref(ch);
 
+#if !GLIB_CHECK_VERSION(2, 36, 0)
     g_type_init();
+#endif
 
-    hash = g_hash_table_new_full(g_str_hash, g_str_equal,NULL,(GDestroyNotify)cache_unref);
+    hash = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, NULL);
 
+    main_loop = g_main_loop_new( NULL, TRUE );
     g_main_loop_run( main_loop );
     g_main_loop_unref( main_loop );
 

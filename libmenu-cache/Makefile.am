@@ -3,9 +3,10 @@ NULL =
 INCLUDES =				\
 	$(GLIB_CFLAGS)			\
 	$(MONITOR_CFLAGS)		\
-    $(ADDITIONAL_FLAGS) \
+	$(DEBUG_CFLAGS) \
+	$(ADDITIONAL_FLAGS) \
 	-Werror-implicit-function-declaration \
-	-DMENUCACHE_LIBEXECDIR="\"$(libexecdir)\"" \
+	-DMENUCACHE_LIBEXECDIR="\"$(pkglibexecdir)\"" \
 	$(NULL)
 
 lib_LTLIBRARIES = libmenu-cache.la
@@ -23,7 +24,7 @@ libmenu_cache_la_LIBADD = 		\
 libmenu_cache_la_LDFLAGS =			\
 	-no-undefined				\
 	-export-symbols-regex menu_cache	\
-	-version-info 1:0:0 \
+	-version-info 3:0:0 \
 	$(NULL)
 
 lib_menu_cache_includedir = $(includedir)/menu-cache
