@@ -1,3 +1,17 @@
+menu-cache (0.5.0-1) unstable; urgency=low
+
+  [ Andriy Grytsenko ]
+  * Merging upstream version 0.5.0.
+  * Renaming libmenu-cache1-dev into proper unversioned package.
+  * Changing libmenu-cache1 into libmenu-cache3 due to ABI change.
+  * Enabling hardening.
+  * Adding Conflicts: libmenu-cache1 for libmenu-cache3.
+
+  [ Andrew Lee (李健秋) ]
+  * Update uploaders field for Daniel and Andriy. (Closes: #704352)
+
+ -- Andrew Lee (李健秋) <ajqlee@debian.org>  Thu, 08 Aug 2013 23:00:20 +0800
+
 menu-cache (0.3.3-1) unstable; urgency=low
 
   * Merging upstream version 0.3.3.
