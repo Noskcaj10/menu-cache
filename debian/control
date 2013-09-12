@@ -35,6 +35,7 @@ Section: libdevel
 Architecture: any
 Depends: ${misc:Depends}, libmenu-cache3 (= ${binary:Version})
 Conflicts: libmenu-cache1-dev
+Replaces: libmenu-cache1-dev
 Suggests: libmenu-cache-doc
 Description: LXDE implementation of the freedesktop Menu specification (devel)
  Libmenu-cache is a library creating and utilizing caches to speed up
