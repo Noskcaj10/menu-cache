@@ -32,7 +32,7 @@ G_BEGIN_DECLS
 
 #define __VERSION_MAJOR 0
 #define __VERSION_MINOR 5
-#define __VERSION_MICRO 0
+#define __VERSION_MICRO 1
 
 #define MENU_CACHE_CHECK_VERSION(_a,_b,_c) \
     (__VERSION_MAJOR > _a || \
