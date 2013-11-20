@@ -1,3 +1,25 @@
+menu-cache (0.5.1-1) unstable; urgency=low
+
+  [ Andriy Grytsenko ]
+  * Bump Standards-Version to actual one (fixes lintian warning, see QA 
+    page).
+  * Adding files NEWS to libmenu-cache documentation.
+  * Adding libmenu-cache-doc package with developers documentation.
+  * Adding suggestion on libmenu-cache-doc package from 
+    libmenu-cache-dev.
+  * Adding libmenu-cache-dbg package.
+  * debian: new package libmenu-cache-bin: binaries should not come with 
+    library.
+  * Removing --libexecdir from configure parameters.
+  * Adding Conflicts: libmenu-cache1-dev for libmenu-cache-dev
+  * Adding libmenu-cache3.symbols due to standards 3.9.4 requirement.
+  * Adding Replaces: libmenu-cache1-dev for libmenu-cache-dev
+    (Closes: #722113).
+  * Merging upstream version 0.5.1 (Closes: #721885).
+  * Adding --disable-silent-rules to fix buildlog checker warning.
+
+ -- Andrew Lee (李健秋) <ajqlee@debian.org>  Wed, 20 Nov 2013 16:29:46 +0800
+
 menu-cache (0.5.0-1) unstable; urgency=low
 
   [ Andriy Grytsenko ]
